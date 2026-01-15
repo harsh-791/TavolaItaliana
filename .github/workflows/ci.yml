@@ -102,9 +102,10 @@ jobs:
         with:
           languages: java
           queries: +security-and-quality  # Include security queries
+          build-mode: manual  # Use manual build mode to avoid plugin resolution issues
 
       - name: Build for CodeQL Analysis
-        run: mvn clean compile -DskipTests -Dcheckstyle.skip=true -Dmaven.javadoc.skip=true
+        run: mvn clean compile -DskipTests
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
