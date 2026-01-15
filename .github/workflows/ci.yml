@@ -1,0 +1,351 @@
+# ============================================================================
+# Production-Grade DevSecOps CI Pipeline
+# ============================================================================
+# This pipeline implements shift-left security, quality gates, and fail-fast
+# behavior to ensure only secure, tested code reaches production.
+#
+# Pipeline Flow:
+# 1. Checkout → 2. Setup → 3. Linting → 4. SAST → 5. SCA → 6. Tests → 
+# 7. Build → 8. Docker Build → 9. Image Scan → 10. Container Test → 11. Push
+# ============================================================================
+
+name: DevSecOps CI Pipeline
+
+on:
+  # Trigger on push to main branch (production deployments)
+  push:
+    branches:
+      - main
+  
+  # Allow manual triggering for testing/debugging
+  workflow_dispatch:
+
+# Global environment variables
+env:
+  JAVA_VERSION: '17'
+  MAVEN_VERSION: '3.9'
+  DOCKER_IMAGE_NAME: chefapp
+  DOCKER_IMAGE_TAG: ${{ github.sha }}
+
+# ============================================================================
+# STAGE 1: CHECKOUT
+# ============================================================================
+# Purpose: Retrieve source code from repository
+# Risk Mitigation: Ensures we're working with the correct codebase version
+# Failure Impact: Pipeline cannot proceed without source code
+# Order Rationale: Must be first - all subsequent stages depend on source code
+# ============================================================================
+jobs:
+  ci-pipeline:
+    name: DevSecOps CI Pipeline
+    runs-on: ubuntu-latest
+    
+    # Cache Maven dependencies to speed up builds
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for CodeQL analysis
+
+      # ============================================================================
+      # STAGE 2: SETUP RUNTIME
+      # ============================================================================
+      # Purpose: Configure Java and Maven environment
+      # Risk Mitigation: Ensures consistent build environment across runs
+      # Failure Impact: Build tools unavailable, compilation fails
+      # Order Rationale: Required before any compilation or testing
+      # ============================================================================
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: 'maven'  # Cache Maven dependencies for faster builds
+
+      - name: Cache Maven Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-m2-
+
+      # ============================================================================
+      # STAGE 3: LINTING (Code Quality)
+      # ============================================================================
+      # Purpose: Enforce coding standards and catch style violations early
+      # Risk Mitigation: Prevents technical debt, improves maintainability
+      # Failure Impact: Code quality degrades, harder to maintain, potential bugs
+      # Order Rationale: Fast feedback before expensive operations (build/test)
+      # Security Note: Catches security-relevant code smells (e.g., hardcoded secrets)
+      # ============================================================================
+      - name: Run Checkstyle (Code Quality Linting)
+        id: checkstyle
+        run: |
+          echo "🔍 Running Checkstyle code quality analysis..."
+          mvn checkstyle:check
+        continue-on-error: false  # Fail fast on code quality issues
+
+      - name: Upload Checkstyle Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkstyle-results
+          path: target/checkstyle-result.xml
+          retention-days: 30
+
+      # ============================================================================
+      # STAGE 4: SAST (Static Application Security Testing)
+      # ============================================================================
+      # Purpose: Detect security vulnerabilities in source code
+      # Risk Mitigation: Finds SQL injection, XSS, insecure deserialization, etc.
+      # Failure Impact: Vulnerable code could be deployed to production
+      # Order Rationale: Early detection (shift-left) - before build/test cycles
+      # Security Impact: CRITICAL - Prevents security flaws from reaching production
+      # ============================================================================
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java
+          queries: +security-and-quality  # Include security queries
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        continue-on-error: false  # Fail on security findings
+
+      # ============================================================================
+      # STAGE 5: SCA (Software Composition Analysis)
+      # ============================================================================
+      # Purpose: Scan dependencies for known vulnerabilities (CVEs)
+      # Risk Mitigation: Identifies vulnerable third-party libraries
+      # Failure Impact: Application vulnerable to known exploits via dependencies
+      # Order Rationale: After SAST, before build (fail fast on vulnerable deps)
+      # Security Impact: CRITICAL - Most vulnerabilities come from dependencies
+      # ============================================================================
+      - name: Run OWASP Dependency-Check (SCA)
+        id: dependency-check
+        run: |
+          echo "🔒 Scanning dependencies for known vulnerabilities..."
+          mvn org.owasp:dependency-check-maven:check
+        continue-on-error: false  # Fail on high/critical CVEs (configured in pom.xml)
+
+      - name: Upload Dependency-Check Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: target/dependency-check-report.html
+          retention-days: 30
+
+      # ============================================================================
+      # STAGE 6: UNIT TESTS
+      # ============================================================================
+      # Purpose: Verify application logic correctness
+      # Risk Mitigation: Catches regressions and logic errors before deployment
+      # Failure Impact: Broken functionality reaches production
+      # Order Rationale: After security scans, before packaging (fail fast)
+      # Quality Gate: Tests must pass for pipeline to continue
+      # ============================================================================
+      - name: Run Unit Tests
+        id: unit-tests
+        run: |
+          echo "🧪 Running unit tests..."
+          mvn test
+        continue-on-error: false
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: target/surefire-reports/
+          retention-days: 30
+
+      - name: Upload Test Coverage (if available)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-coverage
+          path: target/site/jacoco/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      # ============================================================================
+      # STAGE 7: BUILD / PACKAGE
+      # ============================================================================
+      # Purpose: Compile and package application into deployable artifact
+      # Risk Mitigation: Ensures application builds successfully
+      # Failure Impact: Cannot deploy if build fails
+      # Order Rationale: After tests pass, before containerization
+      # ============================================================================
+      - name: Build Application
+        id: build
+        run: |
+          echo "🔨 Building application..."
+          mvn clean package -DskipTests  # Tests already ran in previous stage
+        continue-on-error: false
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-jar
+          path: target/chefapp-*.jar
+          retention-days: 7
+
+      # ============================================================================
+      # STAGE 8: DOCKER BUILD
+      # ============================================================================
+      # Purpose: Create containerized application image
+      # Risk Mitigation: Ensures Dockerfile is valid and image builds correctly
+      # Failure Impact: Cannot deploy containerized application
+      # Order Rationale: After successful build, before image scanning
+      # Security Note: Multi-stage build reduces attack surface
+      # ============================================================================
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        id: docker-build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: ${{ env.DOCKER_IMAGE_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          load: true  # Load image for local scanning
+
+      # ============================================================================
+      # STAGE 9: IMAGE SCAN (Container Security)
+      # ============================================================================
+      # Purpose: Scan container image for vulnerabilities and misconfigurations
+      # Risk Mitigation: Detects vulnerabilities in base image and dependencies
+      # Failure Impact: Vulnerable container deployed to production
+      # Order Rationale: After image build, before push (fail fast)
+      # Security Impact: CRITICAL - Prevents deploying vulnerable containers
+      # ============================================================================
+      - name: Run Trivy Vulnerability Scanner
+        id: trivy-scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.DOCKER_IMAGE_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'  # Fail on critical and high severity
+          exit-code: '1'  # Fail pipeline on vulnerabilities
+          scanners: 'vuln,config,secret'  # Scan for vulnerabilities, misconfigurations, secrets
+
+      - name: Upload Trivy Results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Upload Trivy Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-scan-report
+          path: trivy-results.sarif
+          retention-days: 30
+
+      # ============================================================================
+      # STAGE 10: RUNTIME CONTAINER TEST (Smoke Test)
+      # ============================================================================
+      # Purpose: Verify container runs correctly and application is accessible
+      # Risk Mitigation: Catches runtime issues before deployment
+      # Failure Impact: Container may not work in production environment
+      # Order Rationale: After image scan passes, before push (fail fast)
+      # Quality Gate: Ensures containerized app actually works
+      # ============================================================================
+      - name: Start Container and Run Smoke Test
+        id: smoke-test
+        run: |
+          echo "🚀 Starting container for smoke test..."
+          
+          # Start container in background
+          docker run -d \
+            --name chefapp-test \
+            -p 8080:8080 \
+            --health-cmd="curl -f http://localhost:8080/ || exit 1" \
+            --health-interval=10s \
+            --health-timeout=3s \
+            --health-retries=3 \
+            --health-start-period=30s \
+            ${{ env.DOCKER_IMAGE_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
+          
+          # Wait for container to be healthy
+          echo "⏳ Waiting for container to be healthy..."
+          timeout=60
+          elapsed=0
+          while [ $elapsed -lt $timeout ]; do
+            if docker inspect --format='{{.State.Health.Status}}' chefapp-test | grep -q "healthy"; then
+              echo "✅ Container is healthy"
+              break
+            fi
+            sleep 2
+            elapsed=$((elapsed + 2))
+          done
+          
+          # Verify application responds
+          echo "🔍 Testing application endpoint..."
+          response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/ || echo "000")
+          
+          if [ "$response" = "302" ] || [ "$response" = "200" ]; then
+            echo "✅ Application is responding correctly (HTTP $response)"
+            exit 0
+          else
+            echo "❌ Application failed to respond (HTTP $response)"
+            docker logs chefapp-test
+            exit 1
+          fi
+        continue-on-error: false
+
+      - name: Cleanup Test Container
+        if: always()
+        run: |
+          docker stop chefapp-test || true
+          docker rm chefapp-test || true
+
+      # ============================================================================
+      # STAGE 11: DOCKER PUSH TO DOCKERHUB
+      # ============================================================================
+      # Purpose: Push trusted, scanned image to container registry
+      # Risk Mitigation: Only pushes images that passed all security checks
+      # Failure Impact: Cannot deploy to production
+      # Order Rationale: Final step - only reached if all quality gates pass
+      # Security Note: Uses GitHub Secrets for authentication (no hardcoded credentials)
+      # ============================================================================
+      - name: Log in to Docker Hub
+        if: success()  # Only if all previous steps succeeded
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push Docker Image to Docker Hub
+        if: success()  # Only if all previous steps succeeded
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Pipeline Success Summary
+        if: success()
+        run: |
+          echo "✅ =========================================="
+          echo "✅ CI Pipeline Completed Successfully!"
+          echo "✅ =========================================="
+          echo "✅ All security scans passed"
+          echo "✅ All tests passed"
+          echo "✅ Container image built and tested"
+          echo "✅ Image pushed to Docker Hub"
+          echo "✅ Image: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ env.DOCKER_IMAGE_TAG }}"
+          echo "✅ =========================================="
