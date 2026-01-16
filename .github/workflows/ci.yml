@@ -149,7 +149,7 @@ jobs:
         id: unit-tests
         run: |
           echo "🧪 Running unit tests..."
-          mvn test
+          mvn test -e
         continue-on-error: false
 
       - name: Upload Test Results
