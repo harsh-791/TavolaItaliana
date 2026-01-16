@@ -31,7 +31,7 @@
 		<maven.compiler.source>17</maven.compiler.source>
 		<maven.compiler.target>17</maven.compiler.target>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<checkstyle.version>9.3</checkstyle.version>
+		<checkstyle.version>10.12.0</checkstyle.version>
 		<owasp.dependency.check.version>9.0.9</owasp.dependency.check.version>
 	</properties>
 	<dependencies>
@@ -138,13 +138,7 @@
 					<format>ALL</format>
 					<suppressionFile>dependency-check-suppressions.xml</suppressionFile>
 				</configuration>
-				<executions>
-					<execution>
-						<goals>
-							<goal>check</goal>
-						</goals>
-					</execution>
-				</executions>
+				<!-- No executions - only run when explicitly called via mvn org.owasp:dependency-check-maven:check -->
 			</plugin>
 		</plugins>
 	</build>

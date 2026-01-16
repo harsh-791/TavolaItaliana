@@ -105,7 +105,9 @@ jobs:
           build-mode: manual  # Use manual build mode to avoid plugin resolution issues
 
       - name: Build for CodeQL Analysis
-        run: mvn clean compile -DskipTests -Dcheckstyle.skip=true
+        run: |
+          # Clean and compile using compiler plugin directly (avoids lifecycle plugins)
+          mvn clean compiler:compile -DskipTests
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
