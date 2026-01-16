@@ -131,20 +131,7 @@
 				</configuration>
 				<!-- No executions - only run when explicitly called via mvn checkstyle:check -->
 			</plugin>
-			<!-- OWASP Dependency-Check Plugin: Scans dependencies for known vulnerabilities -->
-			<plugin>
-				<groupId>org.owasp</groupId>
-				<artifactId>dependency-check-maven</artifactId>
-				<version>${owasp.dependency.check.version}</version>
-				<configuration>
-					<failBuildOnCVSS>7</failBuildOnCVSS>
-					<skipProvidedScope>true</skipProvidedScope>
-					<skipRuntimeScope>false</skipRuntimeScope>
-					<format>ALL</format>
-					<suppressionFile>dependency-check-suppressions.xml</suppressionFile>
-				</configuration>
-				<!-- No executions - only run when explicitly called via mvn org.owasp:dependency-check-maven:check -->
-			</plugin>
+			<!-- OWASP Dependency-Check is handled by GitHub Action, not Maven plugin -->
 		</plugins>
 	</build>
 

@@ -102,7 +102,7 @@ This project demonstrates **production-grade DevOps practices** with:
 
 ## 🔐 CI/CD Pipeline Architecture
 
-This project implements a **production-grade DevSecOps CI pipeline** that runs automatically on every push to `main` and can be manually triggered via `workflow_dispatch`.
+This project implements a **production-grade DevSecOps CI pipeline** that runs automatically on every push to `main` (or `master`) and can be manually triggered via `workflow_dispatch`.
 
 ### Pipeline Flow Diagram
 
