@@ -13,13 +13,15 @@ COPY pom.xml .
 
 # Download dependencies (cached unless pom.xml changes)
 # Maven is already installed in the base image, no need for mvnw wrapper
-RUN mvn dependency:go-offline -B
+# Use dependency:resolve instead of go-offline to avoid plugin validation
+RUN mvn dependency:resolve -B || mvn dependency:go-offline -B
 
 # Copy source code
 COPY src ./src
 
 # Build application (skip tests in Docker build - tests run in CI)
-RUN mvn clean package -DskipTests -B
+# Skip checkstyle during Docker build (linting happens in CI pipeline)
+RUN mvn clean package -DskipTests -Dcheckstyle.skip=true -B
 
 # ============================================================================
 # Stage 2: Runtime - Minimal production image
