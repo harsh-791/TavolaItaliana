@@ -10,10 +10,9 @@ WORKDIR /app
 
 # Copy only dependency files first (for better layer caching)
 COPY pom.xml .
-COPY .mvn .mvn
-COPY mvnw .
 
 # Download dependencies (cached unless pom.xml changes)
+# Maven is already installed in the base image, no need for mvnw wrapper
 RUN mvn dependency:go-offline -B
 
 # Copy source code
