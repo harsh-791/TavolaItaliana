@@ -32,6 +32,7 @@ FROM eclipse-temurin:17-jre-jammy AS runtime
 RUN groupadd -r chefapp && useradd -r -g chefapp chefapp
 
 # Install security updates and required packages
+# Use --no-install-recommends to minimize attack surface
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends curl && \
